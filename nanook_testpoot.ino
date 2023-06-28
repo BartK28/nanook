@@ -17,9 +17,9 @@ int shoulderPin = 27; // The shoulder gpio pin
 
 int frequency = 1000; // The pwm frequency
 
-int resolution = 15; // The pwm resolution
+int resolution = 16; // The pwm resolution
 
-int baseValue = 10; // The base amount the valve opens
+int baseValue = 5000; // The base amount the valve opens
 
 // Setup the pwm outputs for valves
 void setup() {
@@ -40,28 +40,28 @@ void loop() {
   // Handle shoulder movement. Move towards target rotation
   if (shoulder > shoulderTarget) {
     // Open valve to retract cilinder by a set amount * speedMultiplier
-    ledcWrite(2, 127 - (baseValue * speedMultiplier));
+    ledcWrite(2, 32767 - (baseValue * speedMultiplier));
   } else if (shoulder < shoulderTarget) {
     // Open valve to extend cilinder by a set amount * speedMultiplier
-    ledcWrite(2, 127 + (baseValue * speedMultiplier));
+    ledcWrite(2, 32767 + (baseValue * speedMultiplier));
   }
 
   // Handle elbow movement. Move towards target rotation
   if (elbow > elbowTarget) {
     // Open valve to retract cilinder by a set amount * speedMultiplier * elbowSpeedMultiplier
-    ledcWrite(1, 127 - (baseValue * speedMultiplier * elbowSpeedMultiplier));
+    ledcWrite(1, 32767 - (baseValue * speedMultiplier * elbowSpeedMultiplier));
   } else if (elbow < elbowTarget) {
     // Open valve to extend cilinder by a set amount * speedMultiplier * elbowSpeedMultiplier
-    ledcWrite(1, 127 + (baseValue * speedMultiplier * elbowSpeedMultiplier));
+    ledcWrite(1, 32767 + (baseValue * speedMultiplier * elbowSpeedMultiplier));
   }
 
   // Handle ankle movement. Move towards target rotation
   if (ankle > ankleTarget) {
     // Open valve to retract cilinder by a set amount * speedMultiplier * ankleSpeedMultiplier
-    ledcWrite(0, 127 - (baseValue * speedMultiplier * ankleSpeedMultiplier));
+    ledcWrite(0, 32767 - (baseValue * speedMultiplier * ankleSpeedMultiplier));
   } else if (ankle < ankleTarget) {
     // Open valve to extend cilinder by a set amount * speedMultiplier * ankleSpeedMultiplier
-    ledcWrite(0,127 + (baseValue * speedMultiplier * ankleSpeedMultiplier));
+    ledcWrite(0, 32767 + (baseValue * speedMultiplier * ankleSpeedMultiplier));
   }
 
   // Shoulder swings backwards and forwards in a swinging motion. Depending on this motion the other parts move.
