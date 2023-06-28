@@ -1,4 +1,4 @@
-# Nanook - Dean LaheijD
+# Nanook - Buurtschap Poteind 2023
 Nanook arduino script for BS Poteind
 
 ## Usage
