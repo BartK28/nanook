@@ -1,6 +1,6 @@
-float shoulder = 0; // Needs to be shoulder sensor input
-float elbow = 0; // Needs to be elbow sensor input
-float ankle = 0; // Needs to be ankle sensor input
+int shoulder = 0; // Needs to be shoulder sensor input
+int elbow = 0; // Needs to be elbow sensor input
+int ankle = 0; // Needs to be ankle sensor input
 
 float shoulderTarget = 52; // The target rotation of the shoulder
 float elbowTarget = 52; // The target rotation of the elbow
@@ -11,9 +11,9 @@ float ankleSpeedMultiplier = 2; // Speed multiplier of the ankle
 float speedMultiplier = 1; // Global speed multiplier
 bool footOnGround = false; // Is the foot on the ground yes/no (If on the ground, calculate flat position for ankle)
 
-int anklePin = 24; // The ankle gpio pin
-int elbowPin = 25; // The elbow gpio pin
-int shoulderPin = 27; // The shoulder gpio pin
+int anklePin = 15; // The ankle gpio pin
+int elbowPin = 0; // The elbow gpio pin
+int shoulderPin = 33; // The shoulder gpio pin
 
 int frequency = 1000; // The pwm frequency
 
@@ -23,20 +23,45 @@ int baseValue = 5000; // The base amount the valve opens
 
 // Setup the pwm outputs for valves
 void setup() {
+  Serial.begin(115200);
+  pinMode(16, INPUT_PULLUP);
   ledcSetup(0, frequency, resolution);
   ledcAttachPin(anklePin, 0);
   ledcSetup(1, frequency, resolution);
   ledcAttachPin(elbowPin, 1);
   ledcSetup(2, frequency, resolution);
   ledcAttachPin(shoulderPin, 2);
+  pinMode(35, OUTPUT);
+  pinMode(34, OUTPUT);
+  pinMode(32, INPUT);
+  pinMode(25, INPUT);
+  pinMode(26, INPUT);
+  delay(1000);
 }
 
-// DutyCycle 64 max one way
-// DutyCycle 191 max other way
-// DutyCycle 127 halfway
+int counter = 0;
 
 void loop() {
+  float vA = analogRead(32);
+  float vE = analogRead(25);
+  float vS = analogRead(26);
+  ankle = float(360)/float(4095)*vA;
+  elbow = float(360)/float(4095)*vE;
+  shoulder = float(360)/float(4095)*vS;
+  Serial.println(ankle);
+  Serial.println(elbow);
+  Serial.println(shoulder);
 
+  //digitalWrite(35, HIGH);
+  //digitalWrite(34, HIGH);
+
+  //digitalWrite(35, !digitalRead(16));
+  //digitalWrite(34, !digitalRead(16));
+
+ledcWrite(0, 12767);
+ledcWrite(1, 22767);
+ledcWrite(2, 32767);
+/*
   // Handle shoulder movement. Move towards target rotation
   if (shoulder > shoulderTarget) {
     // Open valve to retract cilinder by a set amount * speedMultiplier
@@ -99,4 +124,6 @@ void loop() {
   if (footOnGround) {
     ankleTarget = 90 - shoulder + elbow;
   }
+  */
+  delay(200);
 }
