@@ -1,3 +1,5 @@
+#include <movingAvg.h>
+
 typedef struct Pid_S{
   float oldState; 				/**<old state*/
   float iState;   				/**<integrator state*/
@@ -20,6 +22,8 @@ const int ELBOW_PIN = 0; // The elbow gpio pin
 const int SHOULDER_PIN = 33; // The shoulder gpio pin
 
 const int SWITCH_ON_OFF = 16;
+
+const int SWITCH_STANDING_WALKING = 19;
 
 const int ENABLE_A = 17;
 const int ENABLE_B = 18;
@@ -108,10 +112,23 @@ int anklePosition3;
 
 bool onOffSwitch;
 
+bool running = false;
+
+int AVERAGE_SIZE = 50;
+movingAvg averageFilterShoulder(AVERAGE_SIZE);
+movingAvg averageFilterElbow(AVERAGE_SIZE);
+movingAvg averageFilterAnkle(AVERAGE_SIZE);
+
 // Setup the pwm outputs for valves
 void setup() {
   Serial.begin(57600);
+
+  averageFilterShoulder.begin();
+  averageFilterElbow.begin();
+  averageFilterAnkle.begin();
+
   pinMode(SWITCH_ON_OFF, INPUT_PULLUP);
+  pinMode(SWITCH_STANDING_WALKING, INPUT_PULLUP);
 
   ledcSetup(PWM_OUT_SHOULDER, frequency, resolution);
   ledcAttachPin(SHOULDER_PIN, 2);
@@ -131,9 +148,9 @@ void setup() {
   pinMode(A_IN_SHOULDER, INPUT);
 
   //Set PID values
-  PidSetGain(PID_ID_SHOULDER, 5,0,0);  
-  PidSetGain(PID_ID_ELBOW, 5,0,0);
-  PidSetGain(PID_ID_ANKLE, 5,0,0);
+  PidSetGain(PID_ID_SHOULDER, 200 * speedMultiplier,0,0);
+  PidSetGain(PID_ID_ELBOW, 200 * speedMultiplier * elbowSpeedMultiplier,0,0);
+  PidSetGain(PID_ID_ANKLE, 200 * speedMultiplier * ankleSpeedMultiplier,0,0);
 
   //Set Base values, zodat poot op grond staat
   shoulderTarget = SHOULDER_BASE;
@@ -142,6 +159,7 @@ void setup() {
 
   delay(1000);
 }
+
 
 void loop() {
   float vA = analogRead(A_IN_ANKLE);
@@ -152,14 +170,22 @@ void loop() {
   elbow = float(360)/float(4095)*vE;  //12bits 
   shoulder = float(360)/float(4095)*vS; //12bits
 
+  averageFilterShoulder.reading(shoulder);
+  shoulder = averageFilterShoulder.getAvg();
+  averageFilterElbow.reading(elbow);
+  elbow = averageFilterElbow.getAvg();
+  averageFilterAnkle.reading(ankle);
+  ankle = averageFilterAnkle.getAvg();
+
   onOffSwitch = digitalRead(SWITCH_ON_OFF);
 
+  running = digitalRead(SWITCH_STANDING_WALKING);
    //actual = Scale(ActCurrent, IMin, IMax, 0, 100); 		//ActCurrent -> Actual measured current
    //error = (Setpoint * Max / 100) - (actual); 			//Calculate error in % related to Setpoint
    //output = PidUpdate(ucPIDid, error, actual); 			//PID control output in %
 
   //Ieder 10k ticks send debug info
-  if (counter = 10000)
+  if (counter == 100)
     {
       DebugInfo();
       counter = 0; 
@@ -171,7 +197,7 @@ void loop() {
   digitalWrite(POW_LED, LOW);  //zet blauwe led aan
 
   //Begrezing maximale uitsturing cilinder
-  cilinderBaseSpeed  == int(LimitCalc(float(baseValue * speedMultiplier), 16384)); 
+  cilinderBaseSpeed  = int(LimitCalc(float(baseValue * speedMultiplier), 16384)); 
   cilinderElbowSpeed = int(LimitCalc(float(cilinderBaseSpeed * elbowSpeedMultiplier), 16384));
   cilinderAnkleSpeed = int(LimitCalc(float(cilinderBaseSpeed * ankleSpeedMultiplier), 16384));
 
@@ -182,13 +208,11 @@ void loop() {
 
   //Excecute PID regeling
   outputShoulder = PidUpdate(PID_ID_SHOULDER, errorShoulder, shoulder );
-  outputShoulder  = LimitCalc(outputShoulder, 16384);
-
+  outputShoulder = -LimitCalc(outputShoulder, 16384);
   outputElbow = PidUpdate(PID_ID_ELBOW, errorElbow, elbow );
-  outputElbow  = LimitCalc(outputElbow, 16384);
-
+  outputElbow = -LimitCalc(outputElbow, 16384);
   outputAnkle = PidUpdate(PID_ID_ANKLE, errorAnkle, ankle );
-  outputAnkle  = LimitCalc(outputAnkle, 16384);
+  outputAnkle = -LimitCalc(outputAnkle, 16384);
 
   //Schrijf PWM uitsturing naar outputs
   ledcWrite(PWM_OUT_SHOULDER, 32767 + outputShoulder);
@@ -196,88 +220,88 @@ void loop() {
   ledcWrite(PWM_OUT_ANKLE   , 32767 + outputAnkle);
 
   // Base position: Trillen kwam doordat de klep niet naar neutraal gaat wanneer de positie bereikt is. Maar terug de andere kant op
-  if (shoulder > SHOULDER_BASE)
-    ledcWrite(PWM_OUT_SHOULDER, 50000);
-  else if (shoulder < SHOULDER_BASE)
-    ledcWrite(PWM_OUT_SHOULDER, 20000);
-  else
-    ledcWrite(PWM_OUT_SHOULDER, 32767);
+  if (!running) {
+    shoulderTarget = SHOULDER_BASE;
+    elbowTarget = ELBOW_BASE;
+    ankleTarget = ANKLE_BASE;
+  } else {
+    // Set points
+    shoulderPosition1 = SHOULDER_MAX_IN - 5; //was 95  -> nu 81
+    shoulderPosition2 = SHOULDER_MAX_OUT + 10; //was 85  -> nu 41
+    shoulderPosition3 = shoulderPosition2 + 20; // was 70 -> nu 61
+    shoulderPosition4 = shoulderPosition3 + 10;// was 90  -> nu 71
+    shoulderPosition5 = shoulderPosition4 - 30;// 65 -> nu 41 
 
-  if (elbow > ELBOW_BASE) 
-    ledcWrite(PWM_OUT_ELBOW, 50000);
-  else if (elbow < ELBOW_BASE)
-    ledcWrite(PWM_OUT_ELBOW, 20000);
-  else
-    ledcWrite(PWM_OUT_ELBOW, 32767);
+    elbowPosition1 = ELBOW_MAX_IN - 5;  //was 95  -> nu 193 
+    elbowPosition2 = ELBOW_MAX_OUT + 10;  // was 145 -> nu 130 
+    elbowPosition3 = elbowPosition2 + 5; // was 150 -> nu 135
 
-  if (ankle > ANKLE_BASE) 
-    ledcWrite(PWM_OUT_ANKLE, 50000);
-  else if (ankle < ANKLE_BASE)
-    ledcWrite(PWM_OUT_ANKLE, 20000);
-  else
-    ledcWrite(PWM_OUT_ANKLE, 32767);
+    anklePosition1 = ANKLE_MAX_IN - 5;  //was 90  -> nu 194
+    anklePosition2 = ANKLE_MAX_OUT + 20; //was 135  -> nu 70
+    anklePosition3 = anklePosition2 + 15 ; //was 160  -> nu 85
 
-  // Set points
-  shoulderPosition1 = SHOULDER_MAX_IN - 5; //was 95  -> nu 81
-  shoulderPosition2 = SHOULDER_MAX_OUT + 10; //was 85  -> nu 41
-  shoulderPosition3 = shoulderPosition2 + 20; // was 70 -> nu 61
-  shoulderPosition4 = shoulderPosition3 + 10;// was 90  -> nu 71
-  shoulderPosition5 = shoulderPosition4 - 30;// 65 -> nu 41 
+    // Shoulder swings backwards and forwards in a swinging motion. Depending on this motion the other parts move.
+    if (compareValues(shoulderTarget, SHOULDER_BASE) && compareValues(shoulder, SHOULDER_BASE)) {
+      shoulderTarget = shoulderPosition1;  //was 95 nu max uitslag - 5 graden
+      elbowTarget = elbowPosition1; //was 95 nu max uitslag - 5 graden
+      ankleTarget = anklePosition1; //was 90 nu max uitslag -5 graden
+      ankleSpeedMultiplier = 4;
+      elbowSpeedMultiplier = 3;
+      state = 1;
+    }
 
-  elbowPosition1 = ELBOW_MAX_IN - 5;  //was 95  -> nu 193 
-  elbowPosition2 = ELBOW_MAX_OUT + 10;  // was 145 -> nu 130 
-  elbowPosition3 = elbowPosition2 + 5; // was 150 -> nu 135
+        // Shoulder swings backwards and forwards in a swinging motion. Depending on this motion the other parts move.
+    if (compareValues(shoulderTarget, shoulderPosition2) && compareValues((int)shoulder, shoulderPosition2)) {
+      shoulderTarget = shoulderPosition1;  //was 95 nu max uitslag - 5 graden
+      elbowTarget = elbowPosition1; //was 95 nu max uitslag - 5 graden
+      ankleTarget = anklePosition1; //was 90 nu max uitslag -5 graden
+      ankleSpeedMultiplier = 4;
+      elbowSpeedMultiplier = 3;
+      state = 1;
+    }
 
-  anklePosition1 = ANKLE_MAX_IN - 5;  //was 90  -> nu 194
-  anklePosition2 = ANKLE_MAX_OUT + 20; //was 135  -> nu 70
-  anklePosition3 = anklePosition2 + 15 ; //was 160  -> nu 85
+    if (compareValues(shoulderTarget, shoulderPosition1) && compareValues((int)shoulder, shoulderPosition1)) {
+      shoulderTarget = shoulderPosition2;
+      elbowTarget = elbowPosition2;
+      elbowSpeedMultiplier = 1;
+      footOnGround = true;
+      state = 2;
+    }
 
-  // Shoulder swings backwards and forwards in a swinging motion. Depending on this motion the other parts move.
-  if (shoulderTarget == SHOULDER_BASE && (int)shoulder == SHOULDER_BASE) {
-    shoulderTarget = shoulderPosition1;  //was 95 nu max uitslag - 5 graden
-    elbowTarget = elbowPosition1; //was 95 nu max uitslag - 5 graden
-    ankleTarget = anklePosition1; //was 90 nu max uitslag -5 graden
-    ankleSpeedMultiplier = 4;
-    elbowSpeedMultiplier = 3;
-    state = 1;
-  }
+    if (compareValues(shoulderTarget, shoulderPosition1) && compareValues((int)shoulder, shoulderPosition3)) {
+      elbowTarget = elbowPosition3;
+      ankleTarget = anklePosition2;
+      elbowSpeedMultiplier = 2;
+      ankleSpeedMultiplier = 2;
+      state = 3;
+    }
 
-  if (shoulderTarget == shoulderPosition1 && (int)shoulder == shoulderPosition1) {
-    shoulderTarget = shoulderPosition2;
-    elbowTarget = elbowPosition2;
-    elbowSpeedMultiplier = 1;
-    footOnGround = true;
-    state = 2;
-  }
+    if (compareValues(shoulderTarget, SHOULDER_BASE) && compareValues((int)shoulder, shoulderPosition4)) {
+      elbowSpeedMultiplier = 1;
+      elbowTarget = elbowPosition3;
+      footOnGround = true;
+      state = 4;
+    }
 
-  if (shoulderTarget == shoulderPosition1 && (int)shoulder == shoulderPosition3) {
-    elbowTarget = elbowPosition3;
-    ankleTarget = anklePosition2;
-    elbowSpeedMultiplier = 2;
-    ankleSpeedMultiplier = 2;
-    state = 3;
-  }
+    if (compareValues(shoulderTarget, SHOULDER_BASE) && compareValues((int)shoulder, shoulderPosition5)) {
+      footOnGround = false;
+      ankleSpeedMultiplier = 1.5;
+      ankleTarget = anklePosition3;
+      state  = 5;
+    }
 
-  if (shoulderTarget == SHOULDER_BASE && (int)shoulder == shoulderPosition4) {
-    elbowSpeedMultiplier = 1;
-    elbowTarget = elbowPosition3;
-    footOnGround = true;
-    state = 4;
-  }
-
-  if (shoulderTarget == SHOULDER_BASE && (int)shoulder == shoulderPosition5) {
-    footOnGround = false;
-    ankleSpeedMultiplier = 1.5;
-    ankleTarget = anklePosition3;
-    state  = 5;
-  }
-
-  if (footOnGround) {
-    ankleTarget = 90 - shoulder + elbow;
+    if (footOnGround) {
+      ankleTarget = 90 - shoulder + elbow;
+    }
+    
   }
 
   // Delay om te zorgen dat de analogRead functie werkt
-  delay(50);
+  delay(10);
+}
+
+bool compareValues(int one, int two) {
+  return one <= two + 4 && one >= two -4;
 }
 
 //Added debug info
@@ -285,7 +309,7 @@ void loop() {
 void DebugInfo()
 /********************/
 {
-      Serial.print(" ,Schouder M: ");
+      Serial.print(", Schouder M: ");
       Serial.print(shoulder);
       Serial.print(" S: ");
       Serial.print(shoulderTarget);
@@ -294,7 +318,7 @@ void DebugInfo()
       Serial.print(" PWM: ");
       Serial.print(outputShoulder);
 
-      Serial.print(" ,Elleboog M: ");
+      Serial.print(", Elleboog M: ");
       Serial.print(elbow);
       Serial.print(" S: ");
       Serial.print(elbowTarget);
@@ -303,7 +327,7 @@ void DebugInfo()
       Serial.print(" PWM: ");
       Serial.print(outputElbow);
 
-      Serial.print("Enkel M: ");
+      Serial.print(", Enkel M: ");
       Serial.print(ankle);
       Serial.print(" S: ");
       Serial.print(ankleTarget);
@@ -312,11 +336,13 @@ void DebugInfo()
       Serial.print(" PWM: ");
       Serial.print(outputAnkle);
 
-      Serial.print(" ,Input: ");
+      Serial.print(", Input: ");
       Serial.print(onOffSwitch);
-      Serial.print(" ,State: ");
+      Serial.print(", State: ");
       Serial.println(state);
 }
+
+int OFFSET = 6500;
 
 //Added function
 /****************************************/
@@ -326,6 +352,7 @@ float LimitCalc(float Value, int Limit)
 {
   if (Value >= 0 )
   {
+    Value += OFFSET;
     if (Value > Limit) 
     {
       Value = Limit;
@@ -333,6 +360,7 @@ float LimitCalc(float Value, int Limit)
   }
   else 
   {
+    Value -= OFFSET;
     if (Value < -Limit) 
     {
       Value = -Limit;
@@ -346,21 +374,17 @@ float LimitCalc(float Value, int Limit)
 void PidSetGain (int id, float pGain, float iGain, float dGain)
 /****************************************************************************/
 {
-  if (Pid[id].used) {
-    Pid[id].pGain = pGain;
-    Pid[id].iGain = iGain;
-    Pid[id].dGain = dGain;
-  }
+  Pid[id].pGain = pGain;
+  Pid[id].iGain = iGain;
+  Pid[id].dGain = dGain;
 }
 
 /****************************************************************************/
 void PidSetIntegratorLimits (int id, float iMin, float iMax)
 /****************************************************************************/
 {
-  if (Pid[id].used) {
-    Pid[id].iMin = iMin;
-    Pid[id].iMax = iMax;
-  }
+  Pid[id].iMin = iMin;
+  Pid[id].iMax = iMax;
 }
 
 /****************************************************************************/
